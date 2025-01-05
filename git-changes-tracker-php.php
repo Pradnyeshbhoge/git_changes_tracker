@@ -1,5 +1,5 @@
 <?php
-    date_default_timezone_set('Asia/Kolkata'); // Ensure consistent timezone
+    date_default_timezone_set('Asia/Kolkata'); 
 
 class GitChangesTracker {
     private $repoPath;
