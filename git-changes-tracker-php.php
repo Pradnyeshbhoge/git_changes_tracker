@@ -2,15 +2,26 @@
     date_default_timezone_set('Asia/Kolkata'); // Ensure consistent timezone
 
 class GitChangesTracker {
-    private string $repoPath;
-    private string $historyFile;
+    private $repoPath;
+    private $historyFile;
+    private $isWindows;
+    private $lastOutput;  // Add this property to store backup details
 
     public function __construct(string $repoPath) {
-        $this->repoPath = rtrim($repoPath, '/');
-        $this->historyFile = $this->repoPath . '/.git_changes_history.json';
-        
-        // Initialize project (add to .gitignore)
+        $this->isWindows = (PHP_OS === 'WINNT');
+        $this->repoPath = $this->normalizePath($repoPath);
+        $this->historyFile = $this->repoPath . DIRECTORY_SEPARATOR . '.git_changes_history.json';
+        $this->lastOutput = '';
         $this->initializeProject();
+    }
+
+    // Add getter for backup details
+    public function getLastOutput(): string {
+        return $this->lastOutput;
+    }
+
+    private function normalizePath($path): string {
+        return rtrim(str_replace(['\\', '/'], DIRECTORY_SEPARATOR, $path), DIRECTORY_SEPARATOR);
     }
 
     private function initializeProject(): void {
@@ -125,8 +136,9 @@ private function saveBackupTime(): void {
      * Create directory recursively
      */
     private function createDirectory(string $path): void {
+        $path = $this->normalizePath($path);
         if (!file_exists($path)) {
-            mkdir($path, 0777, true);
+            mkdir($path, 0755, true);
         }
     }
 
@@ -135,54 +147,94 @@ private function saveBackupTime(): void {
      */
     public function backupChangedFiles(string $backupDir, int $projectId = null): ?bool {
         try {
+            $this->lastOutput = '';  // Reset output
+            $backupDir = $this->normalizePath($backupDir);
             $lastBackup = $this->loadLastBackupTime();
             $changedFiles = $this->getChangedFiles($lastBackup);
 
             if (empty($changedFiles)) {
-                echo "No changes detected since last backup.\n";
+                $this->lastOutput = "No changes detected since last backup.\n";
                 return false;
             }
 
-            // Create backup directory with timestamp
             $timestamp = date('Y-m-d_H-i-s');
-            $backupPath = rtrim($backupDir, '/') . "/backup_" . $timestamp;
+            $backupPath = $backupDir . DIRECTORY_SEPARATOR . "backup_" . $timestamp;
             
-            // Only create directory if there are actual changes
             $this->createDirectory($backupPath);
 
-            // Copy changed files and track total size
             $copyCount = 0;
             $totalSize = 0;
+            $copiedFiles = [];
+
             foreach ($changedFiles as $file) {
-                $sourcePath = $this->repoPath . '/' . $file;
+                $sourcePath = $this->repoPath . DIRECTORY_SEPARATOR . $file;
                 if (file_exists($sourcePath) && !is_dir($sourcePath)) {
-                    $targetPath = $backupPath . '/' . $file;
+                    $targetPath = $backupPath . DIRECTORY_SEPARATOR . $file;
                     $this->createDirectory(dirname($targetPath));
                     if (copy($sourcePath, $targetPath)) {
                         $copyCount++;
-                        $totalSize += filesize($sourcePath);
+                        $fileSize = filesize($sourcePath);
+                        $totalSize += $fileSize;
+                        $copiedFiles[] = [
+                            'name' => $file,
+                            'size' => $this->formatSize($fileSize)
+                        ];
                     }
                 }
             }
 
-            // Save backup details to database if project ID is provided
             if ($projectId !== null && $copyCount > 0) {
                 $this->saveBackupToDatabase($projectId, $backupPath, $copyCount, $totalSize);
             }
 
-            // Save backup timestamp only if files were copied
             if ($copyCount > 0) {
                 $this->saveBackupTime();
-                echo "\nBackup completed: $copyCount files copied to $backupPath\n";
+                
+                // Build the output string
+                $output = "\nBackup completed: $copyCount files copied to $backupPath\n\n";
+                $output .= "Files backed up:\n";
+                $output .= str_repeat('-', 80) . "\n";
+                $output .= sprintf("%-60s %20s\n", "File Path", "Size");
+                $output .= str_repeat('-', 80) . "\n";
+                
+                // Sort files by name
+                usort($copiedFiles, function($a, $b) {
+                    return strcmp($a['name'], $b['name']);
+                });
+                
+                foreach ($copiedFiles as $file) {
+                    $output .= sprintf("%-60s %20s\n", 
+                        strlen($file['name']) > 59 ? '...' . substr($file['name'], -56) : $file['name'],
+                        $file['size']
+                    );
+                }
+                
+                $output .= str_repeat('-', 80) . "\n";
+                $output .= sprintf("%60s %20s\n", 
+                    "Total Files: " . $copyCount, 
+                    "Total Size: " . $this->formatSize($totalSize)
+                );
+
+                $this->lastOutput = $output;
                 return true;
             }
             
             return false;
 
         } catch (Exception $e) {
-            echo "Error during backup process: " . $e->getMessage() . "\n";
+            $this->lastOutput = "Error during backup process: " . $e->getMessage() . "\n";
             return null;
         }
+    }
+
+    private function formatSize($bytes): string {
+        $units = ['B', 'KB', 'MB', 'GB'];
+        $i = 0;
+        while ($bytes >= 1024 && $i < count($units) - 1) {
+            $bytes /= 1024;
+            $i++;
+        }
+        return round($bytes, 2) . ' ' . $units[$i];
     }
 
     private function saveBackupToDatabase(int $projectId, string $backupPath, int $filesCount, int $totalSize): void {

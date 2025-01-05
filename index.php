@@ -65,15 +65,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $project = $projects[$_POST['project_index']];
         
         $tracker = new GitChangesTracker($project['repo_path']);
-        ob_start();
-        $result = $tracker->backupChangedFiles($project['backup_path'], $project['id']); // Pass the project ID
-        $output = ob_get_clean();
+        $result = $tracker->backupChangedFiles($project['backup_path'], $project['id']);
+        $_SESSION['backup_message'] = $tracker->getLastOutput();
         
-        if ($result === false) {
-            $_SESSION['backup_message'] = "No changes detected since last backup.";
-        } else {
-            $_SESSION['backup_message'] = $output;
-        }
+        header('Location: ' . $_SERVER['PHP_SELF']);
+        exit;
     }
     
     header('Location: ' . $_SERVER['PHP_SELF']);

@@ -1,8 +1,8 @@
 -- Create the database
-CREATE DATABASE IF NOT EXISTS git_tracker;
+CREATE DATABASE IF NOT EXISTS project_history_tracker;
 
 -- Use the database
-USE git_tracker;
+USE project_history_tracker;
 
 -- Create projects table
 CREATE TABLE IF NOT EXISTS projects (
