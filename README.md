@@ -13,5 +13,3 @@ git_changes_tracker is a utility that helps developers monitor and analyze chang
 - Generate repository statistics
 - Monitor branch activities
 - Export reports in various formats
-
-## Installation
